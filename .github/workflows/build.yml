@@ -1,115 +1,85 @@
-name: Build Paddle-Lite OCR Android Demo
+name: Build Paddle-Lite-Demo Android
 
 on:
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch: # 允许手动触发
+  push:
+    branches: [ feature/paddle-x ] # 监听该分支的推送
 
 env:
   NDK_VERSION: r20b
-  CMAKE_VERSION: 3.20.0
+  NDK_ROOT: /opt/android-ndk-r20b
 
 jobs:
   build-android-demo:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        ref: 'feature/paddle-x' # 明确指定编译的分支
 
     - name: Setup Android NDK
       run: |
-        # 安装NDK
+        # 安装指定版本的 Android NDK
         wget -q https://dl.google.com/android/repository/android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip
         sudo unzip -q android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip -d /opt/
-        sudo mv /opt/android-ndk-${{ env.NDK_VERSION }} /opt/android-ndk-r20b
-        echo "NDK_ROOT=/opt/android-ndk-r20b" >> $GITHUB_ENV
-        echo "/opt/android-ndk-r20b" >> $GITHUB_PATH
+        echo "NDK_ROOT=/opt/android-ndk-${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+        echo "/opt/android-ndk-${{ env.NDK_VERSION }}" >> $GITHUB_PATH
 
-    - name: Setup CMake
-      uses: jwlawson/actions-setup-cmake@v1.13
-      with:
-        cmake-version: ${{ env.CMAKE_VERSION }}
-
-    - name: Install system dependencies
+    - name: Setup Build Tools
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
-          git \
+          cmake \
           wget \
-          unzip \
-          python3 \
-          python3-pip
-
-    - name: Verify environment
-      run: |
-        echo "NDK_ROOT: $NDK_ROOT"
-        echo "CMake version:"
+          unzip
+        # 验证 CMake 版本 (系统默认版本通常可工作，如需特定版本可在此安装)
         cmake --version
-        echo "NDK build tools:"
-        ls $NDK_ROOT/build/cmake/
 
-    - name: Build Paddle-Lite Android Demo
+    - name: Build Android Demo
       run: |
         cd ocr/android/shell/ppocr_demo
         chmod +x build.sh
+        # 传递 NDK_ROOT 环境变量给编译脚本，并指定 ABI
         ./build.sh arm64-v8a
       env:
         NDK_ROOT: ${{ env.NDK_ROOT }}
 
-    - name: Check build artifacts
-      run: |
-        cd ocr/android/shell/ppocr_demo
-        echo "Build artifacts:"
-        find . -name "ppocr_demo" -type f
-        find . -name "*.so" -type f
-        echo "PPOCR demo directory contents:"
-        ls -la ppocr_demo/
-
-    - name: Create release package
+    - name: Package Artifacts
       run: |
         cd ocr/android/shell/ppocr_demo
         # 创建发布包目录
         mkdir -p ppocr_demo_package/libs/arm64-v8a
         # 复制可执行文件
         cp -r ppocr_demo ppocr_demo_package/
-        # 复制库文件
-        cp ppocr_demo/*.so ppocr_demo_package/libs/arm64-v8a/
-        # 复制资源文件（如果存在）
+        # 复制动态库文件
+        cp ppocr_demo/*.so ppocr_demo_package/libs/arm64-v8a/ 2>/dev/null || echo "No .so files to copy."
+        # 复制可能的模型和资源文件
         if [ -d assets ]; then
           cp -r assets ppocr_demo_package/
         fi
         # 创建说明文件
-        cat > ppocr_demo_package/README.txt << EOF
-        Paddle-Lite OCR Android Demo 构建产物
-        构建时间: $(date)
-        Git Commit: $GITHUB_SHA
-        目标架构: arm64-v8a
-        
-        包含内容:
-        - ppocr_demo: 可执行文件
-        - libs/: 运行时依赖的共享库
-        
+        cat > ppocr_demo_package/README.md << 'EOF'
+        # PP-OCR Demo Android 构建产物
+        此包包含在 GitHub Actions 中自动构建的 PP-OCR Android Demo 程序及依赖库。
+        构建环境:
+        - NDK: ${{ env.NDK_VERSION }}
+        - 架构: arm64-v8a
         部署说明:
-        1. 将整个目录推送到Android设备
-        2. 确保文件具有执行权限: chmod +x ppocr_demo/ppocr_demo
-        3. 设置库路径: export LD_LIBRARY_PATH=./libs/arm64-v8a:\$LD_LIBRARY_PATH
-        4. 运行: ./ppocr_demo/ppocr_demo
-        
-        注意: 此构建基于Paddle-Lite feature/paddle-x分支
+          1. 将整个 `ppocr_demo_package` 目录推送至 Android 设备。
+          2. 授予可执行权限: `chmod +x ppocr_demo_package/ppocr_demo/ppocr_demo`
+          3. 设置库路径并运行: `export LD_LIBRARY_PATH=./libs/arm64-v8a:$LD_LIBRARY_PATH && ./ppocr_demo_package/ppocr_demo/ppocr_demo`
         EOF
-        
         # 打包
         tar -czf ppocr_demo_android_arm64-v8a.tar.gz ppocr_demo_package/
-        echo "Package created:"
-        ls -lh ppocr_demo_android_arm64-v8a.tar.gz
+        echo "构建产物已打包."
 
-    - name: Upload build artifacts
+    - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ppocr-demo-android-arm64-v8a
+        name: ppocr-demo-android
         path: |
           ocr/android/shell/ppocr_demo/ppocr_demo_android_arm64-v8a.tar.gz
-          ocr/android/shell/ppocr_demo/ppocr_demo/
-        retention-days: 30
+        retention-days: 7
