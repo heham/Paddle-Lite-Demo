@@ -48,6 +48,8 @@ public: // NOLINT
 
   bool Process(std::string img_path, std::string output_img_path = "");
   std::string ProcessWithJson(std::string img_path, std::string output_img_path = "");
+  // 新增：直接传入 OpenCV Mat 对象识别
+  std::string ProcessWithJson(cv::Mat image, std::string output_img_path = "");
 
 private: // NOLINT
   std::map<std::string, double> Config_;
@@ -55,4 +57,6 @@ private: // NOLINT
   std::shared_ptr<ClsPredictor> clsPredictor_;
   std::shared_ptr<DetPredictor> detPredictor_;
   std::shared_ptr<RecPredictor> recPredictor_;
+  // 内部处理函数
+  std::string ProcessWithJsonInternal(cv::Mat rgbaImage, std::string output_img_path);
 };
