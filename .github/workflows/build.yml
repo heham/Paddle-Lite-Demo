@@ -24,6 +24,9 @@ jobs:
         echo ""
         echo "Checking Paddle-Lite-Demo directory"
         ls -la /home/runner/work/Paddle-Lite-Demo/
+        echo ""
+        echo "Checking Paddle-Lite-Demo/Paddle-Lite-Demo directory"
+        ls -la /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo/
         
     - name: Install basic tools
       run: |
