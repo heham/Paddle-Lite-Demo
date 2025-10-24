@@ -124,39 +124,57 @@ std::map<std::string, double> LoadConfigTxt(std::string config_path) {
   return dict;
 }
 
-cv::Mat Visualization(cv::Mat srcimg,
-                      std::vector<std::vector<std::vector<int>>> boxes,
-                      std::string output_image_path) {
-  // 安全检查：确保有检测框才进行可视化
+// 简化的可视化函数，避免复杂操作
+bool SimpleVisualization(cv::Mat srcimg,
+                        std::vector<std::vector<std::vector<int>>> boxes,
+                        std::string output_image_path) {
+  std::cout << "DEBUG: SimpleVisualization called" << std::endl;
+  
   if (boxes.empty()) {
-    std::cout << "No boxes to visualize" << std::endl;
-    return srcimg;
+    std::cout << "DEBUG: No boxes to visualize" << std::endl;
+    return false;
   }
   
-  cv::Point rook_points[boxes.size()][4];
-  for (int n = 0; n < boxes.size(); n++) {
-    for (int m = 0; m < boxes[0].size(); m++) {
-      rook_points[n][m] = cv::Point(static_cast<int>(boxes[n][m][0]),
-                                    static_cast<int>(boxes[n][m][1]));
-    }
-  }
   cv::Mat img_vis;
   srcimg.copyTo(img_vis);
+  
+  std::cout << "DEBUG: Starting to draw " << boxes.size() << " boxes" << std::endl;
+  
+  // 简化绘制，只绘制矩形而不是多边形
   for (int n = 0; n < boxes.size(); n++) {
-    const cv::Point *ppt[1] = {rook_points[n]};
-    int npt[] = {4};
-    cv::polylines(img_vis, ppt, npt, 1, 1, CV_RGB(0, 255, 0), 2, 8, 0);
+    if (boxes[n].size() < 4) {
+      std::cout << "DEBUG: Box " << n << " has invalid point count: " << boxes[n].size() << std::endl;
+      continue;
+    }
+    
+    // 计算边界框
+    int min_x = boxes[n][0][0];
+    int min_y = boxes[n][0][1];
+    int max_x = boxes[n][0][0];
+    int max_y = boxes[n][0][1];
+    
+    for (int m = 1; m < 4; m++) {
+      if (boxes[n][m][0] < min_x) min_x = boxes[n][m][0];
+      if (boxes[n][m][1] < min_y) min_y = boxes[n][m][1];
+      if (boxes[n][m][0] > max_x) max_x = boxes[n][m][0];
+      if (boxes[n][m][1] > max_y) max_y = boxes[n][m][1];
+    }
+    
+    // 绘制矩形
+    cv::rectangle(img_vis, cv::Point(min_x, min_y), cv::Point(max_x, max_y), 
+                  cv::Scalar(0, 255, 0), 2);
   }
-
-  // 安全检查：确保可以写入文件
-  bool write_success = cv::imwrite(output_image_path, img_vis);
-  if (write_success) {
-    std::cout << "The detection visualized image saved in "
-              << output_image_path.c_str() << std::endl;
+  
+  std::cout << "DEBUG: Attempting to save image to: " << output_image_path << std::endl;
+  
+  bool success = cv::imwrite(output_image_path, img_vis);
+  if (success) {
+    std::cout << "DEBUG: Image saved successfully" << std::endl;
   } else {
-    std::cout << "Failed to save image to " << output_image_path.c_str() << std::endl;
+    std::cout << "DEBUG: Failed to save image" << std::endl;
   }
-  return img_vis;
+  
+  return success;
 }
 
 Pipeline::Pipeline(const std::string &detModelDir,
@@ -165,109 +183,63 @@ Pipeline::Pipeline(const std::string &detModelDir,
                    const std::string &cPUPowerMode, const int cPUThreadNum,
                    const std::string &config_path,
                    const std::string &dict_path) {
+  std::cout << "DEBUG: Pipeline constructor started" << std::endl;
+  
   clsPredictor_.reset(
       new ClsPredictor(clsModelDir, cPUThreadNum, cPUPowerMode));
   detPredictor_.reset(
       new DetPredictor(detModelDir, cPUThreadNum, cPUPowerMode));
   recPredictor_.reset(
       new RecPredictor(recModelDir, cPUThreadNum, cPUPowerMode));
+  
+  std::cout << "DEBUG: Predictors created" << std::endl;
+  
   Config_ = LoadConfigTxt(config_path);
   charactor_dict_ = ReadDict(dict_path);
   charactor_dict_.insert(charactor_dict_.begin(), "#"); // NOLINT
   charactor_dict_.push_back(" ");
-}
-
-bool Pipeline::Process(std::string img_path, std::string output_img_path) {
-  cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
-  // 安全检查：确保图片加载成功
-  if (rgbaImage.empty()) {
-    std::cout << "Failed to load image: " << img_path << std::endl;
-    return false;
-  }
   
-  int use_direction_classify =
-      static_cast<int>(Config_["use_direction_classify"]);
-  cv::Mat srcimg;
-  rgbaImage.copyTo(srcimg);
-
-  auto start = std::chrono::system_clock::now();
-  // det predict
-  auto boxes =
-      detPredictor_->Predict(srcimg, Config_, nullptr, nullptr, nullptr);
-
-  std::vector<float> mean = {0.5f, 0.5f, 0.5f};
-  std::vector<float> scale = {1 / 0.5f, 1 / 0.5f, 1 / 0.5f};
-
-  cv::Mat img;
-  rgbaImage.copyTo(img);
-  cv::Mat crop_img;
-
-  std::vector<std::string> rec_text;
-  std::vector<float> rec_text_score;
-  for (int i = boxes.size() - 1; i >= 0; i--) {
-    crop_img = GetRotateCropImage(img, boxes[i]);
-    if (use_direction_classify >= 1) {
-      crop_img =
-          clsPredictor_->Predict(crop_img, nullptr, nullptr, nullptr, 0.9);
-    }
-    auto res = recPredictor_->Predict(crop_img, nullptr, nullptr, nullptr,
-                                      charactor_dict_);
-    rec_text.push_back(res.first);
-    rec_text_score.push_back(res.second);
-  }
-  auto end = std::chrono::system_clock::now();
-  auto duration =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  
-  // 可视化输出（可选）- 添加安全检查
-  if (!output_img_path.empty()) {
-    auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
-  }
-  
-  // print recognized text
-  for (int i = 0; i < rec_text.size(); i++) {
-    std::cout << i << "\t" << rec_text[i] << "\t" << rec_text_score[i]
-              << std::endl;
-  }
-  std::cout << "花费了"
-            << double(duration.count()) *
-                   std::chrono::microseconds::period::num /
-                   std::chrono::microseconds::period::den
-            << "秒" << std::endl;
-  return true;
+  std::cout << "DEBUG: Pipeline constructor completed" << std::endl;
 }
 
 std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_img_path) {
+  std::cout << "DEBUG: ProcessWithJson started" << std::endl;
+  std::cout << "DEBUG: img_path = " << img_path << std::endl;
+  std::cout << "DEBUG: output_img_path = " << output_img_path << std::endl;
+  
+  // 加载图片
   cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
-  // 安全检查：确保图片加载成功
   if (rgbaImage.empty()) {
+    std::cout << "DEBUG: Failed to load image" << std::endl;
     json error_json;
     error_json["error"] = "Failed to load image: " + img_path;
     return error_json.dump(2);
   }
+  std::cout << "DEBUG: Image loaded: " << rgbaImage.cols << "x" << rgbaImage.rows << std::endl;
   
-  int use_direction_classify = static_cast<int>(Config_["use_direction_classify"]);
   cv::Mat srcimg;
   rgbaImage.copyTo(srcimg);
-
+  
   auto start = std::chrono::system_clock::now();
   
-  // det predict
+  // 检测
+  std::cout << "DEBUG: Starting detection..." << std::endl;
   auto boxes = detPredictor_->Predict(srcimg, Config_, nullptr, nullptr, nullptr);
-
-  std::vector<float> mean = {0.5f, 0.5f, 0.5f};
-  std::vector<float> scale = {1 / 0.5f, 1 / 0.5f, 1 / 0.5f};
-
-  cv::Mat img;
-  rgbaImage.copyTo(img);
-  cv::Mat crop_img;
-
+  std::cout << "DEBUG: Detection completed, found " << boxes.size() << " boxes" << std::endl;
+  
+  int use_direction_classify = static_cast<int>(Config_["use_direction_classify"]);
+  cv::Mat img = rgbaImage.clone();
+  
   std::vector<OCRResult> results;
   for (int i = boxes.size() - 1; i >= 0; i--) {
-    crop_img = GetRotateCropImage(img, boxes[i]);
+    std::cout << "DEBUG: Processing box " << i << std::endl;
+    
+    cv::Mat crop_img = GetRotateCropImage(img, boxes[i]);
+    
     if (use_direction_classify >= 1) {
       crop_img = clsPredictor_->Predict(crop_img, nullptr, nullptr, nullptr, 0.9);
     }
+    
     auto res = recPredictor_->Predict(crop_img, nullptr, nullptr, nullptr, charactor_dict_);
     
     OCRResult ocr_result;
@@ -275,12 +247,16 @@ std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_i
     ocr_result.text = res.first;
     ocr_result.score = res.second;
     results.push_back(ocr_result);
+    
+    std::cout << "DEBUG: Box " << i << " - Text: " << res.first << ", Score: " << res.second << std::endl;
   }
   
   auto end = std::chrono::system_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   double elapsed_time = double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den;
-
+  
+  std::cout << "DEBUG: Building JSON result" << std::endl;
+  
   // 构建JSON结果
   json result_json;
   result_json["elapsed_time"] = elapsed_time;
@@ -294,7 +270,6 @@ std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_i
     item["text"] = results[i].text;
     item["score"] = results[i].score;
     
-    // 添加坐标信息
     json box_array = json::array();
     for (const auto& point : results[i].box[0]) {
       json point_json;
@@ -303,35 +278,39 @@ std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_i
       box_array.push_back(point_json);
     }
     item["box"] = box_array;
-    
     results_array.push_back(item);
   }
   result_json["results"] = results_array;
-
-  // 可视化输出（可选）- 添加安全检查
+  
+  // 可视化（如果指定了输出路径）
   if (!output_img_path.empty()) {
+    std::cout << "DEBUG: Starting visualization..." << std::endl;
     try {
-      auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
+      bool vis_success = SimpleVisualization(rgbaImage, boxes, output_img_path);
       result_json["output_image"] = output_img_path;
-      result_json["visualization_success"] = true;
+      result_json["visualization_success"] = vis_success;
+      std::cout << "DEBUG: Visualization completed, success: " << vis_success << std::endl;
     } catch (const std::exception& e) {
+      std::cout << "DEBUG: Visualization exception: " << e.what() << std::endl;
       result_json["output_image"] = output_img_path;
       result_json["visualization_success"] = false;
       result_json["visualization_error"] = e.what();
     }
   }
-
-  return result_json.dump(2); // 返回格式化的JSON字符串
+  
+  std::cout << "DEBUG: ProcessWithJson completed successfully" << std::endl;
+  return result_json.dump(2);
 }
 
 int main(int argc, char **argv) {
+  std::cout << "DEBUG: main started, argc = " << argc << std::endl;
+  
   if (argc < 7) {
     std::cerr << "[ERROR] usage: "
               << " ./ocr_db_crnn_demo det_model_file cls_model_file "
                  "rec_model_file image_path"
                  " charactor_dict config [output_image_path]\n";
     std::cerr << "Example: " << argv[0] << " det_model cls_model rec_model image.jpg dict.txt config.txt [output.jpg]\n";
-    std::cerr << "Example (no output image): " << argv[0] << " det_model cls_model rec_model image.jpg dict.txt config.txt\n";
     exit(1);
   }
   
@@ -343,33 +322,38 @@ int main(int argc, char **argv) {
   std::string config_path = argv[6];
   std::string output_img_path = "";
   
-  // 输出图片路径为可选参数
   if (argc >= 8) {
     output_img_path = argv[7];
-    std::cout << "Output image path: " << output_img_path << std::endl;
+    std::cout << "DEBUG: Output image path provided: " << output_img_path << std::endl;
   } else {
-    std::cout << "No output image path specified" << std::endl;
+    std::cout << "DEBUG: No output image path provided" << std::endl;
   }
   
   std::string cPUPowerMode = "";
   int cPUThreadNum = 1;
   
+  std::cout << "DEBUG: Creating Pipeline object..." << std::endl;
+  
   try {
-    Pipeline *pipe =
-        new Pipeline(det_model_file, cls_model_file, rec_model_file, cPUPowerMode,
-                     cPUThreadNum, config_path, dict_path);
+    Pipeline *pipe = new Pipeline(det_model_file, cls_model_file, rec_model_file, 
+                                 cPUPowerMode, cPUThreadNum, config_path, dict_path);
     
-    // 使用JSON输出模式
+    std::cout << "DEBUG: Pipeline object created, calling ProcessWithJson..." << std::endl;
+    
     std::string json_result = pipe->ProcessWithJson(img_path, output_img_path);
     std::cout << json_result << std::endl;
     
     delete pipe;
+    std::cout << "DEBUG: Pipeline object deleted" << std::endl;
+    
   } catch (const std::exception& e) {
+    std::cout << "DEBUG: Exception in main: " << e.what() << std::endl;
     json error_json;
-    error_json["error"] = "Exception occurred: " + std::string(e.what());
+    error_json["error"] = "Exception in main: " + std::string(e.what());
     std::cout << error_json.dump(2) << std::endl;
     return 1;
   }
   
+  std::cout << "DEBUG: main completed successfully" << std::endl;
   return 0;
 }
