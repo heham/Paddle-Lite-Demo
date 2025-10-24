@@ -53,6 +53,9 @@ set(OPENCV_LIBS ${OPENCV_PATH}/libs/libopencv_imgcodecs.a
 include_directories(${OPENCV_INCLUDE_DIRS})
 link_directories(${OPENCV_LIBS})
 
+# 添加当前目录到包含路径（用于 json.hpp）
+include_directories(.)
+
 set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -ffast-math -Ofast -Os -DNDEBUG -fno-exceptions -fomit-frame-pointer -fno-asynchronous-unwind-tables -fno-unwind-tables"
 )
