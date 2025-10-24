@@ -20,6 +20,7 @@ jobs:
     - name: Check /home/runner/work
       run:
         ls -la /home/runner/work
+        ls -la /home/runner/work/Paddle-Lite-Demo
         
     - name: Install basic tools
       run: |
@@ -47,7 +48,7 @@ jobs:
 
     - name: Download dependencies using download.sh
       run: |
-        cd /home/runner/work/PaddleX-Lite-Deploy/libs
+        cd /home/runner/work/Paddle-Lite-Demo/PaddleX-Lite-Deploy/libs
         
         echo "运行 download.sh 下载依赖库..."
         chmod +x download.sh
@@ -63,13 +64,13 @@ jobs:
 
     - name: Build using build.sh
       run: |
-        cd /home/runner/work/PaddleX-Lite-Deploy/ocr/android/shell/ppocr_demo
+        cd /home/runner/work/Paddle-Lite-Demo/PaddleX-Lite-Deploy/ocr/android/shell/ppocr_demo
         
         echo "运行 build.sh 进行编译..."
         chmod +x build.sh
         
         # 设置环境变量（build.sh 需要）
-        export NDK_ROOT=/disk/android-ndk-r20b
+        export NDK_ROOT=/opt/android-ndk-r20b
         
         # 运行编译脚本
         ./build.sh arm64-v8a
@@ -78,7 +79,7 @@ jobs:
 
     - name: Verify and package build results
       run: |
-        cd /home/runner/work/PaddleX-Lite-Deploy/ocr/android/shell/ppocr_demo
+        cd /home/runner/work/Paddle-Lite-Demo/PaddleX-Lite-Deploy/ocr/android/shell/ppocr_demo
         
         echo "检查编译结果..."
         if [ -f "ppocr_demo/ppocr_demo" ]; then
@@ -104,5 +105,5 @@ jobs:
       with:
         name: ppocr-demo-android
         path: |
-          /home/runner/work/PaddleX-Lite-Deploy/ocr/android/shell/ppocr_demo/ppocr_demo_android_arm64-v8a.tar.gz
+          /home/runner/work/Paddle-Lite-Demo/PaddleX-Lite-Deploy/ocr/android/shell/ppocr_demo/ppocr_demo_android_arm64-v8a.tar.gz
         retention-days: 30
