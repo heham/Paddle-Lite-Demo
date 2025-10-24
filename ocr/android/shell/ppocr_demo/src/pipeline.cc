@@ -154,7 +154,7 @@ cv::Mat Visualization(cv::Mat srcimg,
     std::cout << "The detection visualized image saved in "
               << output_image_path.c_str() << std::endl;
   } else {
-    std::cout << "Failed to save image to " << output_img_path.c_str() << std::endl;
+    std::cout << "Failed to save image to " << output_image_path.c_str() << std::endl;
   }
   return img_vis;
 }
@@ -237,12 +237,12 @@ bool Pipeline::Process(std::string img_path, std::string output_img_path) {
   return true;
 }
 
-// 内部处理函数，处理实际的 OCR 识别
-std::string Pipeline::ProcessWithJsonInternal(cv::Mat rgbaImage, std::string output_img_path) {
+std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_img_path) {
+  cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
   // 安全检查：确保图片加载成功
   if (rgbaImage.empty()) {
     json error_json;
-    error_json["error"] = "Empty image provided";
+    error_json["error"] = "Failed to load image: " + img_path;
     return error_json.dump(2);
   }
   
@@ -284,6 +284,7 @@ std::string Pipeline::ProcessWithJsonInternal(cv::Mat rgbaImage, std::string out
   // 构建JSON结果
   json result_json;
   result_json["elapsed_time"] = elapsed_time;
+  result_json["image_path"] = img_path;
   result_json["detected_count"] = results.size();
   
   json results_array = json::array();
@@ -321,38 +322,6 @@ std::string Pipeline::ProcessWithJsonInternal(cv::Mat rgbaImage, std::string out
   }
 
   return result_json.dump(2); // 返回格式化的JSON字符串
-}
-
-// 从文件路径识别
-std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_img_path) {
-  cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
-  // 安全检查：确保图片加载成功
-  if (rgbaImage.empty()) {
-    json error_json;
-    error_json["error"] = "Failed to load image: " + img_path;
-    return error_json.dump(2);
-  }
-  
-  std::string result = ProcessWithJsonInternal(rgbaImage, output_img_path);
-  json result_json = json::parse(result);
-  result_json["image_source"] = "file";
-  result_json["image_path"] = img_path;
-  return result_json.dump(2);
-}
-
-// 直接传入 OpenCV Mat 对象识别（用于 AutoJS 截图）
-std::string Pipeline::ProcessWithJson(cv::Mat image, std::string output_img_path) {
-  if (image.empty()) {
-    json error_json;
-    error_json["error"] = "Empty image provided";
-    return error_json.dump(2);
-  }
-  
-  std::string result = ProcessWithJsonInternal(image, output_img_path);
-  json result_json = json::parse(result);
-  result_json["image_source"] = "direct";
-  result_json["image_size"] = {image.cols, image.rows};
-  return result_json.dump(2);
 }
 
 int main(int argc, char **argv) {
