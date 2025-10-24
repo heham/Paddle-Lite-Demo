@@ -17,9 +17,12 @@ jobs:
       with:
         ref: 'feature/paddle-x'
 
-    - name: Check /home/runner/work
-      run:
+    - name: Check directory structure
+      run: |
+        echo "Checking /home/runner/work/"
         ls -la /home/runner/work/
+        echo ""
+        echo "Checking Paddle-Lite-Demo directory"
         ls -la /home/runner/work/Paddle-Lite-Demo/
         
     - name: Install basic tools
