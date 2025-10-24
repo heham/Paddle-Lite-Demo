@@ -27,8 +27,10 @@
 #include <opencv2/imgproc.hpp>         // NOLINT
 #include <string>                      // NOLINT
 #include <vector>                      // NOLINT
-#include <nlohmann/json.hpp>           // NOLINT
-using namespace paddle::lite_api;      // NOLINT
+
+// 使用头文件版本的 JSON 库
+#include "json.hpp"
+using json = nlohmann::json;
 
 // 定义识别结果结构体
 struct OCRResult {
