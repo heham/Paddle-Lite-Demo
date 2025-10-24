@@ -127,6 +127,12 @@ std::map<std::string, double> LoadConfigTxt(std::string config_path) {
 cv::Mat Visualization(cv::Mat srcimg,
                       std::vector<std::vector<std::vector<int>>> boxes,
                       std::string output_image_path) {
+  // 安全检查：确保有检测框才进行可视化
+  if (boxes.empty()) {
+    std::cout << "No boxes to visualize" << std::endl;
+    return srcimg;
+  }
+  
   cv::Point rook_points[boxes.size()][4];
   for (int n = 0; n < boxes.size(); n++) {
     for (int m = 0; m < boxes[0].size(); m++) {
@@ -142,9 +148,14 @@ cv::Mat Visualization(cv::Mat srcimg,
     cv::polylines(img_vis, ppt, npt, 1, 1, CV_RGB(0, 255, 0), 2, 8, 0);
   }
 
-  cv::imwrite(output_image_path, img_vis);
-  std::cout << "The detection visualized image saved in "
-            << output_image_path.c_str() << std::endl;
+  // 安全检查：确保可以写入文件
+  bool write_success = cv::imwrite(output_image_path, img_vis);
+  if (write_success) {
+    std::cout << "The detection visualized image saved in "
+              << output_image_path.c_str() << std::endl;
+  } else {
+    std::cout << "Failed to save image to " << output_image_path.c_str() << std::endl;
+  }
   return img_vis;
 }
 
@@ -168,6 +179,12 @@ Pipeline::Pipeline(const std::string &detModelDir,
 
 bool Pipeline::Process(std::string img_path, std::string output_img_path) {
   cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
+  // 安全检查：确保图片加载成功
+  if (rgbaImage.empty()) {
+    std::cout << "Failed to load image: " << img_path << std::endl;
+    return false;
+  }
+  
   int use_direction_classify =
       static_cast<int>(Config_["use_direction_classify"]);
   cv::Mat srcimg;
@@ -202,7 +219,7 @@ bool Pipeline::Process(std::string img_path, std::string output_img_path) {
   auto duration =
       std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   
-  // 可视化输出（可选）
+  // 可视化输出（可选）- 添加安全检查
   if (!output_img_path.empty()) {
     auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
   }
@@ -222,6 +239,13 @@ bool Pipeline::Process(std::string img_path, std::string output_img_path) {
 
 std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_img_path) {
   cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
+  // 安全检查：确保图片加载成功
+  if (rgbaImage.empty()) {
+    json error_json;
+    error_json["error"] = "Failed to load image: " + img_path;
+    return error_json.dump(2);
+  }
+  
   int use_direction_classify = static_cast<int>(Config_["use_direction_classify"]);
   cv::Mat srcimg;
   rgbaImage.copyTo(srcimg);
@@ -284,10 +308,17 @@ std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_i
   }
   result_json["results"] = results_array;
 
-  // 可视化输出（可选）
+  // 可视化输出（可选）- 添加安全检查
   if (!output_img_path.empty()) {
-    auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
-    result_json["output_image"] = output_img_path;
+    try {
+      auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
+      result_json["output_image"] = output_img_path;
+      result_json["visualization_success"] = true;
+    } catch (const std::exception& e) {
+      result_json["output_image"] = output_img_path;
+      result_json["visualization_success"] = false;
+      result_json["visualization_error"] = e.what();
+    }
   }
 
   return result_json.dump(2); // 返回格式化的JSON字符串
@@ -315,18 +346,30 @@ int main(int argc, char **argv) {
   // 输出图片路径为可选参数
   if (argc >= 8) {
     output_img_path = argv[7];
+    std::cout << "Output image path: " << output_img_path << std::endl;
+  } else {
+    std::cout << "No output image path specified" << std::endl;
   }
   
   std::string cPUPowerMode = "";
   int cPUThreadNum = 1;
-  Pipeline *pipe =
-      new Pipeline(det_model_file, cls_model_file, rec_model_file, cPUPowerMode,
-                   cPUThreadNum, config_path, dict_path);
   
-  // 使用JSON输出模式
-  std::string json_result = pipe->ProcessWithJson(img_path, output_img_path);
-  std::cout << json_result << std::endl;
+  try {
+    Pipeline *pipe =
+        new Pipeline(det_model_file, cls_model_file, rec_model_file, cPUPowerMode,
+                     cPUThreadNum, config_path, dict_path);
+    
+    // 使用JSON输出模式
+    std::string json_result = pipe->ProcessWithJson(img_path, output_img_path);
+    std::cout << json_result << std::endl;
+    
+    delete pipe;
+  } catch (const std::exception& e) {
+    json error_json;
+    error_json["error"] = "Exception occurred: " + std::string(e.what());
+    std::cout << error_json.dump(2) << std::endl;
+    return 1;
+  }
   
-  delete pipe;
   return 0;
 }
