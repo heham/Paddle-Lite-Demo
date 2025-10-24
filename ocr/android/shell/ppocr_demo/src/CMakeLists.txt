@@ -69,3 +69,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 add_executable(ppocr_demo pipeline.cc utils.cc cls_process.cc rec_process.cc det_process.cc clipper.cpp db_post_process.cc)
 target_link_libraries(ppocr_demo ${PADDLELITE_LIBS} ${OPENCV_LIBS} -lz -llog)
+# 添加共享库目标
+add_library(ppocr_shared SHARED pipeline.cc utils.cc cls_process.cc rec_process.cc det_process.cc clipper.cpp db_post_process.cc)
+target_link_libraries(ppocr_shared ${PADDLELITE_LIBS} ${OPENCV_LIBS} -lz -llog)
