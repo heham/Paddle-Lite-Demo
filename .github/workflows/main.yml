@@ -1,8 +1,11 @@
 name: Auto Download Paddle-Lite-Demo Feature Branch
 
 on:
-  # 手动触发
   workflow_dispatch:
+
+# 添加权限配置
+permissions:
+  contents: write
 
 jobs:
   download-feature-branch:
@@ -15,76 +18,47 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         ref: 'develop'
+        # 添加 fetch-depth 确保能正常推送
+        fetch-depth: 0
 
     # 2. 下载 feature/paddle-x 分支的完整内容
     - name: Download feature/paddle-x branch
       run: |
-        # 创建临时目录
         mkdir -p temp_download
         cd temp_download
-        
-        # 下载指定分支的ZIP包 - 修复文件名问题
         echo "正在下载 feature/paddle-x 分支..."
         wget -O feature-paddle-x.zip https://github.com/PaddlePaddle/Paddle-Lite-Demo/archive/refs/heads/feature/paddle-x.zip
         
-        # 检查文件是否下载成功
         if [ ! -f "feature-paddle-x.zip" ]; then
           echo "错误：ZIP文件下载失败"
           exit 1
         fi
         
-        echo "下载完成，文件大小："
-        ls -lh feature-paddle-x.zip
-        
-        # 解压ZIP包
-        echo "正在解压文件..."
+        echo "下载完成，正在解压..."
         unzip -q feature-paddle-x.zip
-        
-        # 查看解压后的目录结构
-        echo "解压完成，目录内容："
-        ls -la
-        echo "Paddle-Lite-Demo 目录内容："
-        ls -la Paddle-Lite-Demo-feature-paddle-x/
 
     # 3. 运行下载脚本（如果存在）
     - name: Run download scripts if exist
       run: |
         cd temp_download/Paddle-Lite-Demo-feature-paddle-x
         
-        # 检查并运行libs目录下的download.sh
         if [ -f "libs/download.sh" ]; then
           echo "找到download.sh脚本，正在运行..."
           cd libs
           chmod +x download.sh
-          # 添加执行超时防止卡住
           timeout 300s ./download.sh || echo "下载脚本执行完成或超时"
           cd ..
         else
           echo "未找到libs/download.sh脚本"
-          echo "当前libs目录内容："
-          ls -la libs/ 2>/dev/null || echo "libs目录不存在"
-        fi
-        
-        # 检查其他可能的下载脚本
-        if [ -f "download_dependencies.sh" ]; then
-          echo "找到download_dependencies.sh脚本，正在运行..."
-          chmod +x download_dependencies.sh
-          timeout 300s ./download_dependencies.sh || echo "依赖下载脚本执行完成或超时"
         fi
 
     # 4. 将下载的内容整合到您的仓库结构
     - name: Integrate downloaded content
       run: |
-        # 将下载的内容移动到合适的位置
         echo "正在整合文件到仓库结构..."
         rm -rf PaddleX-Lite-Deploy
         mv temp_download/Paddle-Lite-Demo-feature-paddle-x PaddleX-Lite-Deploy
-        
-        # 显示最终目录结构
-        echo "最终目录结构："
-        ls -la PaddleX-Lite-Deploy/
-        echo "PaddleX-Lite-Deploy 目录大小："
-        du -sh PaddleX-Lite-Deploy/
+        echo "整合完成"
 
     # 5. 提交更新到您的仓库
     - name: Commit and push updates
@@ -94,15 +68,12 @@ jobs:
         
         git add .
         
-        # 检查是否有文件变更
         if git diff-index --quiet HEAD --; then
           echo "没有检测到文件变更"
         else
           git commit -m "Auto-update: Sync Paddle-Lite-Demo feature/paddle-x branch $(date +'%Y-%m-%d %H:%M:%S')"
-          git push origin develop
-          echo "已提交并推送更新到develop分支"
+          git push
+          echo "已提交并推送更新"
         fi
         
-        # 清理临时文件
         rm -rf temp_download
-        echo "临时文件清理完成"
