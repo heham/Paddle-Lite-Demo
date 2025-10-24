@@ -27,7 +27,15 @@
 #include <opencv2/imgproc.hpp>         // NOLINT
 #include <string>                      // NOLINT
 #include <vector>                      // NOLINT
+#include <nlohmann/json.hpp>           // NOLINT
 using namespace paddle::lite_api;      // NOLINT
+
+// 定义识别结果结构体
+struct OCRResult {
+    std::vector<std::vector<std::vector<int>>> box;
+    std::string text;
+    float score;
+};
 
 class Pipeline {
 public: // NOLINT
@@ -36,7 +44,8 @@ public: // NOLINT
            const int cPUThreadNum, const std::string &config_path,
            const std::string &dict_path);
 
-  bool Process(std::string img_path, std::string output_img_path);
+  bool Process(std::string img_path, std::string output_img_path = "");
+  std::string ProcessWithJson(std::string img_path, std::string output_img_path = "");
 
 private: // NOLINT
   std::map<std::string, double> Config_;
