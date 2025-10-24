@@ -166,12 +166,18 @@ Pipeline::Pipeline(const std::string &detModelDir,
 
 bool Pipeline::Process(std::string img_path, std::string output_img_path) {
   cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
+  if (rgbaImage.empty()) {
+    std::cerr << "无法读取图片: " << img_path << std::endl;
+    return false;
+  }
+  
   int use_direction_classify =
       static_cast<int>(Config_["use_direction_classify"]);
   cv::Mat srcimg;
   rgbaImage.copyTo(srcimg);
 
   auto start = std::chrono::system_clock::now();
+  
   // det predict
   auto boxes =
       detPredictor_->Predict(srcimg, Config_, nullptr, nullptr, nullptr);
@@ -196,44 +202,86 @@ bool Pipeline::Process(std::string img_path, std::string output_img_path) {
     rec_text.push_back(res.first);
     rec_text_score.push_back(res.second);
   }
+  
   auto end = std::chrono::system_clock::now();
   auto duration =
       std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  //// visualization
-  auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
-  // print recognized text
+  
+  // 修改可视化逻辑：只有当 output_img_path 不为空时才生成图片
+  if (!output_img_path.empty()) {
+    auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
+    std::cout << "检测结果可视化图片已保存到: " << output_img_path << std::endl;
+  } else {
+    std::cout << "未指定输出图片路径，跳过可视化图片生成" << std::endl;
+  }
+  
+  // 打印识别结果（包含坐标信息）
+  std::cout << "\n识别结果 (共 " << rec_text.size() << " 个):" << std::endl;
+  std::cout << "序号\t文本内容\t置信度\t中心坐标\t边界框坐标" << std::endl;
+  std::cout << "------------------------------------------------------------" << std::endl;
+
   for (int i = 0; i < rec_text.size(); i++) {
-    std::cout << i << "\t" << rec_text[i] << "\t" << rec_text_score[i]
+    auto box = boxes[i];
+    
+    // 计算中心坐标
+    int center_x = (box[0][0] + box[1][0] + box[2][0] + box[3][0]) / 4;
+    int center_y = (box[0][1] + box[1][1] + box[2][1] + box[3][1]) / 4;
+    
+    std::cout << i << "\t" 
+              << rec_text[i] << "\t" 
+              << std::fixed << std::setprecision(6) << rec_text_score[i] << "\t"
+              << "(" << center_x << ", " << center_y << ")\t"
+              << "[(" << box[0][0] << "," << box[0][1] << ")(" 
+              << box[1][0] << "," << box[1][1] << ")(" 
+              << box[2][0] << "," << box[2][1] << ")(" 
+              << box[3][0] << "," << box[3][1] << ")]"
               << std::endl;
   }
-  std::cout << "花费了"
+  
+  std::cout << "\n总耗时: " 
             << double(duration.count()) *
                    std::chrono::microseconds::period::num /
                    std::chrono::microseconds::period::den
-            << "秒" << std::endl;
+            << " 秒" << std::endl;
   return true;
 }
 
+// 修改 main 函数中的参数检查逻辑
 int main(int argc, char **argv) {
-  if (argc < 7) {
+  if (argc < 6) {  // 将原来的 7 改为 6，因为输出图片参数现在是可选的
     std::cerr << "[ERROR] usage: "
               << " ./ocr_db_crnn_demo det_model_file cls_model_file "
                  "rec_model_file image_path"
-                 " output_image_path charactor_dict config\n";
+                 " [output_image_path] charactor_dict config\n";
+    std::cerr << "注意: output_image_path 现在是可选参数，如果不提供则不生成可视化图片\n";
     exit(1);
   }
+  
   std::string det_model_file = argv[1];
   std::string rec_model_file = argv[2];
   std::string cls_model_file = argv[3];
   std::string img_path = argv[4];
-  std::string output_img_path = argv[5];
-  std::string dict_path = argv[6];
-  std::string config_path = argv[7];
+  
+  // 判断是否提供了输出图片路径参数
+  std::string output_img_path = "";
+  std::string dict_path, config_path;
+  
+  if (argc >= 7) {
+    // 提供了输出图片路径
+    output_img_path = argv[5];
+    dict_path = argv[6];
+    config_path = argv[7];
+  } else {
+    // 没有提供输出图片路径
+    dict_path = argv[5];
+    config_path = argv[6];
+  }
+  
   std::string cPUPowerMode = "";
   int cPUThreadNum = 1;
   Pipeline *pipe =
       new Pipeline(det_model_file, cls_model_file, rec_model_file, cPUPowerMode,
                    cPUThreadNum, config_path, dict_path);
-  pipe->Process(img_path, output_img_path);
+  pipe->Process(img_path, output_img_path);  // 传入空字符串表示不输出图片
   return 0;
 }
