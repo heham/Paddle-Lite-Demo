@@ -16,6 +16,7 @@
 #include <algorithm>  // NOLINT
 #include <iostream>   // NOLINT
 #include <sstream>    // NOLINT
+#include <chrono>     // NOLINT
 
 cv::Mat GetRotateCropImage(cv::Mat srcimage,
                            std::vector<std::vector<int>> box) {
@@ -257,20 +258,22 @@ std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_i
   double elapsed_time = double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den;
 
   // 构建JSON结果
-  nlohmann::json result_json;
+  json result_json;
   result_json["elapsed_time"] = elapsed_time;
+  result_json["image_path"] = img_path;
+  result_json["detected_count"] = results.size();
   
-  nlohmann::json results_array = nlohmann::json::array();
+  json results_array = json::array();
   for (int i = 0; i < results.size(); i++) {
-    nlohmann::json item;
+    json item;
     item["index"] = i;
     item["text"] = results[i].text;
     item["score"] = results[i].score;
     
     // 添加坐标信息
-    nlohmann::json box_array = nlohmann::json::array();
+    json box_array = json::array();
     for (const auto& point : results[i].box[0]) {
-      nlohmann::json point_json;
+      json point_json;
       point_json["x"] = point[0];
       point_json["y"] = point[1];
       box_array.push_back(point_json);
@@ -291,12 +294,13 @@ std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_i
 }
 
 int main(int argc, char **argv) {
-  if (argc < 6) {
+  if (argc < 7) {
     std::cerr << "[ERROR] usage: "
               << " ./ocr_db_crnn_demo det_model_file cls_model_file "
                  "rec_model_file image_path"
                  " charactor_dict config [output_image_path]\n";
-    std::cerr << "Example: ./ocr_db_crnn_demo det_model cls_model rec_model image.jpg dict.txt config.txt [output.jpg]\n";
+    std::cerr << "Example: " << argv[0] << " det_model cls_model rec_model image.jpg dict.txt config.txt [output.jpg]\n";
+    std::cerr << "Example (no output image): " << argv[0] << " det_model cls_model rec_model image.jpg dict.txt config.txt\n";
     exit(1);
   }
   
@@ -323,5 +327,6 @@ int main(int argc, char **argv) {
   std::string json_result = pipe->ProcessWithJson(img_path, output_img_path);
   std::cout << json_result << std::endl;
   
+  delete pipe;
   return 0;
 }
