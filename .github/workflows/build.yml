@@ -1,85 +1,231 @@
-name: Build Paddle-Lite-Demo Android
+name: Build Paddle-Lite-Demo Android OCR
 
 on:
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
   push:
-    branches: [ feature/paddle-x ] # 监听该分支的推送
+    branches: [ feature/paddle-x ]
 
 env:
   NDK_VERSION: r20b
-  NDK_ROOT: /opt/android-ndk-r20b
 
 jobs:
-  build-android-demo:
+  build-android-ocr:
     runs-on: ubuntu-latest
-
+    
     steps:
-    - name: Checkout repository
+    - name: Checkout feature/paddle-x branch
       uses: actions/checkout@v4
       with:
-        ref: 'feature/paddle-x' # 明确指定编译的分支
+        ref: 'feature/paddle-x'
 
     - name: Setup Android NDK
       run: |
-        # 安装指定版本的 Android NDK
+        # 安装 Android NDK r20b
         wget -q https://dl.google.com/android/repository/android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip
         sudo unzip -q android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip -d /opt/
         echo "NDK_ROOT=/opt/android-ndk-${{ env.NDK_VERSION }}" >> $GITHUB_ENV
         echo "/opt/android-ndk-${{ env.NDK_VERSION }}" >> $GITHUB_PATH
 
-    - name: Setup Build Tools
+    - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
           cmake \
           wget \
-          unzip
-        # 验证 CMake 版本 (系统默认版本通常可工作，如需特定版本可在此安装)
-        cmake --version
+          curl \
+          tar
 
-    - name: Build Android Demo
+    - name: Download Paddle Lite and OpenCV libraries
       run: |
-        cd ocr/android/shell/ppocr_demo
-        chmod +x build.sh
-        # 传递 NDK_ROOT 环境变量给编译脚本，并指定 ABI
-        ./build.sh arm64-v8a
-      env:
-        NDK_ROOT: ${{ env.NDK_ROOT }}
-
-    - name: Package Artifacts
-      run: |
-        cd ocr/android/shell/ppocr_demo
-        # 创建发布包目录
-        mkdir -p ppocr_demo_package/libs/arm64-v8a
-        # 复制可执行文件
-        cp -r ppocr_demo ppocr_demo_package/
-        # 复制动态库文件
-        cp ppocr_demo/*.so ppocr_demo_package/libs/arm64-v8a/ 2>/dev/null || echo "No .so files to copy."
-        # 复制可能的模型和资源文件
-        if [ -d assets ]; then
-          cp -r assets ppocr_demo_package/
+        cd /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo
+        
+        # 检查并运行下载脚本
+        if [ -f "libs/download.sh" ]; then
+          echo "找到下载脚本，开始下载依赖库..."
+          cd libs
+          chmod +x download.sh
+          ./download.sh
+          echo "依赖库下载完成"
+          
+          # 检查下载的文件结构
+          echo "Android 目录内容:"
+          ls -la android/
+          echo "iOS 目录内容:"
+          ls -la ios/
+          echo "Linux 目录内容:"
+          ls -la linux/
+        else
+          echo "错误：找不到 libs/download.sh 脚本"
+          exit 1
         fi
-        # 创建说明文件
-        cat > ppocr_demo_package/README.md << 'EOF'
-        # PP-OCR Demo Android 构建产物
-        此包包含在 GitHub Actions 中自动构建的 PP-OCR Android Demo 程序及依赖库。
-        构建环境:
-        - NDK: ${{ env.NDK_VERSION }}
-        - 架构: arm64-v8a
-        部署说明:
-          1. 将整个 `ppocr_demo_package` 目录推送至 Android 设备。
-          2. 授予可执行权限: `chmod +x ppocr_demo_package/ppocr_demo/ppocr_demo`
-          3. 设置库路径并运行: `export LD_LIBRARY_PATH=./libs/arm64-v8a:$LD_LIBRARY_PATH && ./ppocr_demo_package/ppocr_demo/ppocr_demo`
-        EOF
-        # 打包
-        tar -czf ppocr_demo_android_arm64-v8a.tar.gz ppocr_demo_package/
-        echo "构建产物已打包."
 
-    - name: Upload Build Artifacts
+    - name: Organize library structure for Android build
+      run: |
+        cd /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo
+        
+        # 创建 Android 编译所需的目录结构
+        mkdir -p libs/android/cxx
+        mkdir -p libs/android/opencv4.1.0
+        
+        # 将下载的库文件组织到正确的目录结构中
+        # 移动 Paddle Lite 库
+        if [ -d "libs/android/inference_lite_lib.android.armv8" ]; then
+          cp -r libs/android/inference_lite_lib.android.armv8/* libs/android/cxx/
+        elif [ -d "libs/android/paddle_lite_libs" ]; then
+          cp -r libs/android/paddle_lite_libs/* libs/android/cxx/
+        else
+          # 尝试查找实际的库目录
+          echo "查找 Paddle Lite 库目录..."
+          find libs/android/ -name "*.so" | head -5
+        fi
+        
+        # 移动 OpenCV 库
+        if [ -d "libs/android/OpenCV-android-sdk" ]; then
+          cp -r libs/android/OpenCV-android-sdk/sdk/native/libs/arm64-v8a/* libs/android/opencv4.1.0/
+          cp -r libs/android/OpenCV-android-sdk/sdk/native/jni/include libs/android/opencv4.1.0/
+        elif [ -d "libs/android/opencv" ]; then
+          cp -r libs/android/opencv/* libs/android/opencv4.1.0/
+        fi
+        
+        # 检查最终的文件结构
+        echo "整理后的 Android cxx 目录:"
+        ls -la libs/android/cxx/
+        echo "整理后的 OpenCV 目录:"
+        ls -la libs/android/opencv4.1.0/
+
+    - name: Build Android OCR Demo
+      run: |
+        cd /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo/ocr/android/shell/ppocr_demo
+        
+        # 设置环境变量
+        export NDK_ROOT=/opt/android-ndk-${{ env.NDK_VERSION }}
+        export ARM_ABI=arm64-v8a
+        export ARM_TARGET_LANG=clang
+        export PADDLE_LITE_DIR="$(pwd)/../../../../../libs/android/cxx"
+        export OPENCV_LITE_DIR="$(pwd)/../../../../../libs/android/opencv4.1.0"
+        
+        echo "编译环境配置:"
+        echo "NDK_ROOT: $NDK_ROOT"
+        echo "PADDLE_LITE_DIR: $PADDLE_LITE_DIR"
+        echo "OPENCV_LITE_DIR: $OPENCV_LITE_DIR"
+        echo "ARM_ABI: $ARM_ABI"
+        
+        # 检查必要的目录和文件
+        echo "检查 Paddle Lite 目录:"
+        ls -la $PADDLE_LITE_DIR/ || echo "Paddle Lite 目录不存在"
+        echo "检查 OpenCV 目录:"
+        ls -la $OPENCV_LITE_DIR/ || echo "OpenCV 目录不存在"
+        
+        # 进入 src 目录开始编译
+        cd src
+        echo "当前目录: $(pwd)"
+        
+        # 清理并创建构建目录
+        rm -rf build
+        mkdir build
+        cd build
+        
+        # 运行 CMake 配置
+        echo "运行 CMake 配置..."
+        cmake -DANDROID_PLATFORM=android-21 \
+              -DPADDLE_LITE_DIR=${PADDLE_LITE_DIR} \
+              -DARM_ABI=${ARM_ABI} \
+              -DARM_TARGET_LANG=${ARM_TARGET_LANG} \
+              -DOPENCV_LITE_DIR=${OPENCV_LITE_DIR} \
+              -DNDK_ROOT=${NDK_ROOT} ..
+        
+        # 编译
+        echo "开始编译..."
+        make -j4
+        
+        # 检查编译结果
+        echo "编译完成，检查生成的文件:"
+        ls -la
+        file ppocr_demo 2>/dev/null || echo "可执行文件未生成"
+
+    - name: Package and verify build artifacts
+      run: |
+        cd /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo/ocr/android/shell/ppocr_demo
+        
+        # 检查是否成功生成了可执行文件
+        if [ -f "src/build/ppocr_demo" ]; then
+          echo "✅ 编译成功！找到可执行文件"
+          
+          # 创建输出目录
+          mkdir -p ppocr_demo_package/libs/arm64-v8a
+          
+          # 复制可执行文件
+          cp src/build/ppocr_demo ppocr_demo_package/
+          
+          # 复制必要的共享库
+          if [ -f "../../../../../libs/android/cxx/libs/arm64-v8a/libpaddle_light_api_shared.so" ]; then
+            cp ../../../../../libs/android/cxx/libs/arm64-v8a/libpaddle_light_api_shared.so ppocr_demo_package/libs/arm64-v8a/
+          fi
+          
+          if [ -f "../../../../../libs/android/cxx/libs/arm64-v8a/libc++_shared.so" ]; then
+            cp ../../../../../libs/android/cxx/libs/arm64-v8a/libc++_shared.so ppocr_demo_package/libs/arm64-v8a/
+          fi
+          
+          # 复制 OpenCV 库（如果存在）
+          find ../../../../../libs/android/opencv4.1.0/ -name "*.so" -exec cp {} ppocr_demo_package/libs/arm64-v8a/ \; 2>/dev/null || echo "没有找到 OpenCV 库"
+          
+          # 复制资源文件
+          if [ -d "assets" ]; then
+            cp -r assets ppocr_demo_package/
+          fi
+          
+          # 创建说明文件
+          cat > ppocr_demo_package/README.md << 'EOF'
+          # PP-OCR Android Demo 构建结果
+          
+          此包包含从 Paddle-Lite-Demo feature/paddle-x 分支编译生成的 Android OCR Demo。
+          
+          文件结构：
+          - ppocr_demo: 可执行文件
+          - libs/arm64-v8a/: 运行所需的共享库
+          - assets/: 资源文件（模型、配置等）
+          
+          部署说明：
+          1. 将整个目录推送到 Android 设备
+          2. 设置执行权限: chmod +x ppocr_demo
+          3. 设置库路径: export LD_LIBRARY_PATH=./libs/arm64-v8a:$LD_LIBRARY_PATH
+          4. 运行: ./ppocr_demo
+          
+          构建信息：
+          - 分支: feature/paddle-x
+          - 架构: arm64-v8a
+          - NDK: r20b
+          EOF
+          
+          # 打包
+          tar -czf ppocr_demo_android_arm64-v8a.tar.gz ppocr_demo_package/
+          echo "打包完成，文件信息:"
+          ls -lh ppocr_demo_android_arm64-v8a.tar.gz
+          echo "包内文件结构:"
+          tar -tzf ppocr_demo_android_arm64-v8a.tar.gz | head -20
+        else
+          echo "❌ 编译失败：没有生成可执行文件 ppocr_demo"
+          echo "调试信息:"
+          echo "src/build 目录内容:"
+          ls -la src/build/ 2>/dev/null || echo "build 目录不存在"
+          echo "当前目录: $(pwd)"
+          exit 1
+        fi
+
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ppocr-demo-android
+        name: ppocr-demo-android-arm64-v8a
         path: |
-          ocr/android/shell/ppocr_demo/ppocr_demo_android_arm64-v8a.tar.gz
+          /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo/ocr/android/shell/ppocr_demo/ppocr_demo_android_arm64-v8a.tar.gz
+        retention-days: 30
+
+    - name: Upload library structure for debugging
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: library-structure-debug
+        path: |
+          /home/runner/work/Paddle-Lite-Demo/Paddle-Lite-Demo/libs/
         retention-days: 7
