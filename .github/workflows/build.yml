@@ -26,10 +26,10 @@ jobs:
       run: |
         # 下载并安装 Android NDK r20b
         wget -q https://dl.google.com/android/repository/android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip
-        sudo unzip -q android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip -d /opt/
-        # 创建软链接到 /disk/android-ndk-r20b 以匹配 build.sh 中的路径
-        sudo ln -sf /opt/android-ndk-${{ env.NDK_VERSION }} /disk/android-ndk-r20b
-        echo "NDK_ROOT=/disk/android-ndk-r20b" >> $GITHUB_ENV
+        sudo unzip -q android-ndk-${{ env.NDK_VERSION }}-linux-x86_64.zip -d $HOME
+        # 创建软链接到 /opt/android-ndk-r20b 以匹配 build.sh 中的路径
+        sudo ln -sf $HOME/android-ndk-${{ env.NDK_VERSION }} /opt/android-ndk-${{ env.NDK_VERSION }}
+        echo "NDK_ROOT=/opt/android-ndk-r20b" >> $GITHUB_ENV
 
     - name: Setup CMake 3.20.0
       run: |
