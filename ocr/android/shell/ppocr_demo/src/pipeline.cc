@@ -15,6 +15,8 @@
 #include "pipeline.h" // NOLINT
 #include <algorithm>  // NOLINT
 #include <iostream>   // NOLINT
+#include <sstream>    // NOLINT
+#include <chrono>     // NOLINT
 
 cv::Mat GetRotateCropImage(cv::Mat srcimage,
                            std::vector<std::vector<int>> box) {
@@ -199,8 +201,12 @@ bool Pipeline::Process(std::string img_path, std::string output_img_path) {
   auto end = std::chrono::system_clock::now();
   auto duration =
       std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  //// visualization
-  auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
+  
+  // 可视化输出（可选）
+  if (!output_img_path.empty()) {
+    auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
+  }
+  
   // print recognized text
   for (int i = 0; i < rec_text.size(); i++) {
     std::cout << i << "\t" << rec_text[i] << "\t" << rec_text_score[i]
@@ -214,26 +220,113 @@ bool Pipeline::Process(std::string img_path, std::string output_img_path) {
   return true;
 }
 
+std::string Pipeline::ProcessWithJson(std::string img_path, std::string output_img_path) {
+  cv::Mat rgbaImage = cv::imread(img_path, cv::IMREAD_COLOR);
+  int use_direction_classify = static_cast<int>(Config_["use_direction_classify"]);
+  cv::Mat srcimg;
+  rgbaImage.copyTo(srcimg);
+
+  auto start = std::chrono::system_clock::now();
+  
+  // det predict
+  auto boxes = detPredictor_->Predict(srcimg, Config_, nullptr, nullptr, nullptr);
+
+  std::vector<float> mean = {0.5f, 0.5f, 0.5f};
+  std::vector<float> scale = {1 / 0.5f, 1 / 0.5f, 1 / 0.5f};
+
+  cv::Mat img;
+  rgbaImage.copyTo(img);
+  cv::Mat crop_img;
+
+  std::vector<OCRResult> results;
+  for (int i = boxes.size() - 1; i >= 0; i--) {
+    crop_img = GetRotateCropImage(img, boxes[i]);
+    if (use_direction_classify >= 1) {
+      crop_img = clsPredictor_->Predict(crop_img, nullptr, nullptr, nullptr, 0.9);
+    }
+    auto res = recPredictor_->Predict(crop_img, nullptr, nullptr, nullptr, charactor_dict_);
+    
+    OCRResult ocr_result;
+    ocr_result.box = {boxes[i]};
+    ocr_result.text = res.first;
+    ocr_result.score = res.second;
+    results.push_back(ocr_result);
+  }
+  
+  auto end = std::chrono::system_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  double elapsed_time = double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den;
+
+  // 构建JSON结果
+  json result_json;
+  result_json["elapsed_time"] = elapsed_time;
+  result_json["image_path"] = img_path;
+  result_json["detected_count"] = results.size();
+  
+  json results_array = json::array();
+  for (int i = 0; i < results.size(); i++) {
+    json item;
+    item["index"] = i;
+    item["text"] = results[i].text;
+    item["score"] = results[i].score;
+    
+    // 添加坐标信息
+    json box_array = json::array();
+    for (const auto& point : results[i].box[0]) {
+      json point_json;
+      point_json["x"] = point[0];
+      point_json["y"] = point[1];
+      box_array.push_back(point_json);
+    }
+    item["box"] = box_array;
+    
+    results_array.push_back(item);
+  }
+  result_json["results"] = results_array;
+
+  // 可视化输出（可选）
+  if (!output_img_path.empty()) {
+    auto img_vis = Visualization(rgbaImage, boxes, output_img_path);
+    result_json["output_image"] = output_img_path;
+  }
+
+  return result_json.dump(2); // 返回格式化的JSON字符串
+}
+
 int main(int argc, char **argv) {
   if (argc < 7) {
     std::cerr << "[ERROR] usage: "
               << " ./ocr_db_crnn_demo det_model_file cls_model_file "
                  "rec_model_file image_path"
-                 " output_image_path charactor_dict config\n";
+                 " charactor_dict config [output_image_path]\n";
+    std::cerr << "Example: " << argv[0] << " det_model cls_model rec_model image.jpg dict.txt config.txt [output.jpg]\n";
+    std::cerr << "Example (no output image): " << argv[0] << " det_model cls_model rec_model image.jpg dict.txt config.txt\n";
     exit(1);
   }
+  
   std::string det_model_file = argv[1];
   std::string rec_model_file = argv[2];
   std::string cls_model_file = argv[3];
   std::string img_path = argv[4];
-  std::string output_img_path = argv[5];
-  std::string dict_path = argv[6];
-  std::string config_path = argv[7];
+  std::string dict_path = argv[5];
+  std::string config_path = argv[6];
+  std::string output_img_path = "";
+  
+  // 输出图片路径为可选参数
+  if (argc >= 8) {
+    output_img_path = argv[7];
+  }
+  
   std::string cPUPowerMode = "";
   int cPUThreadNum = 1;
   Pipeline *pipe =
       new Pipeline(det_model_file, cls_model_file, rec_model_file, cPUPowerMode,
                    cPUThreadNum, config_path, dict_path);
-  pipe->Process(img_path, output_img_path);
+  
+  // 使用JSON输出模式
+  std::string json_result = pipe->ProcessWithJson(img_path, output_img_path);
+  std::cout << json_result << std::endl;
+  
+  delete pipe;
   return 0;
 }
